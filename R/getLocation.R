@@ -39,10 +39,12 @@
 #' `homeorcorp=1`, home related POIs are first, by default.\cr
 #' `homeorcorp=2`, corporation related POIs are first, by default.\cr
 #' @param to_table Optional.\cr
-#' Transform response content to tibble.\cr
+#' Transform response content to a table.
+#' @param keep_bad_request Optional.\cr
+#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
 #'
 #' @return
-#' Returns a JSON, XML or Tibble of results containing detailed reverse geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+#' Returns a JSON, XML or data.table of results containing detailed reverse geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
 #' @export
 #' @examples
 #' \dontrun{
@@ -52,7 +54,7 @@
 #' # the token should be set by `option(amap_key = 'key')`
 #' # or set by key argument in `getLocation()`
 #'
-#' # Get reverse-geocode as a tibble
+#' # Get reverse-geocode as a table
 #' getLocation(104.043284, 30.666864)
 #' # Get reverse-geocode as a XML
 #' getLocation('104.043284, 30.666864', output = 'XML')
@@ -72,7 +74,8 @@ getLocation <-
            output = NULL,
            callback = NULL,
            homeorcorp = 0,
-           to_table = TRUE) {
+           to_table = TRUE,
+           keep_bad_request = TRUE) {
     if (length(lng) != length(lat)) {
       stop('The numbers of Longitude and Latitude are mismatched')
     }
@@ -90,31 +93,36 @@ getLocation <-
         output = output,
         callback = callback,
         homeorcorp = homeorcorp,
-        to_table = to_table
+        to_table = to_table,
+        keep_bad_request = keep_bad_request
       )
     } else {
       # if there is multiple addresses, use getCoord.individual by laapply
       ls_queries <-
-        purrr::map2(
+        mapply(
+          getLocation.individual,
           lng,
           lat,
-          getLocation.individual,
-          key = key,
-          poitype = poitype,
-          radius = radius,
-          extensions = extensions,
-          roadlevel = roadlevel,
-          sig = sig,
-          output = output,
-          callback = callback,
-          homeorcorp = homeorcorp,
-          to_table = to_table
+          MoreArgs = list(
+            key = key,
+            poitype = poitype,
+            radius = radius,
+            extensions = extensions,
+            roadlevel = roadlevel,
+            sig = sig,
+            output = output,
+            callback = callback,
+            homeorcorp = homeorcorp,
+            to_table = to_table,
+            keep_bad_request = keep_bad_request
+          ),
+          # Set SIMPLIFY to keep result as a list not parsed to matrix by column bind
+          #  to merge all elements. rbindlist will be used later
+          SIMPLIFY = FALSE
         )
-      # detect return list of raw requests or `bind_rows` parsed tibble
+      # detect return list of raw requests or `rbindlist` parsed data.table
       if (isTRUE(to_table)) {
-        ls_queries %>%
-          dplyr::bind_rows() %>%
-          return()
+        return(data.table::rbindlist(ls_queries))
       } else {
         return(ls_queries)
       }
@@ -162,10 +170,12 @@ getLocation <-
 #' `homeorcorp=1`, home related POIs are first, by default.\cr
 #' `homeorcorp=2`, corporation related POIs are first, by default.\cr
 #' @param to_table Optional.\cr
-#' Transform response content to tibble.\cr
+#' Transform response content to table
+#' @param keep_bad_request Optional.\cr
+#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
 #'
 #' @return
-#' Returns a JSON, XML or Tibble of results containing detailed reverse geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+#' Returns a JSON, XML or data.table of results containing detailed reverse geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
 getLocation.individual <-
   function(lng,
            lat,
@@ -178,7 +188,8 @@ getLocation.individual <-
            output = NULL,
            callback = NULL,
            homeorcorp = 0,
-           to_table = TRUE) {
+           to_table = TRUE,
+           keep_bad_request = TRUE) {
     # Arguments check ---------------------------------------------------------
     # Check if key argument is set or not
     # If there is no key, try to get amap_key from option and set as key
@@ -215,15 +226,20 @@ getLocation.individual <-
 
     res <-
       httr::RETRY('GET', url = base_url, query = query_parm)
-    httr::stop_for_status(res)
+
+    if (!keep_bad_request) {
+      httr::stop_for_status(res)
+    } else {
+      httr::warn_for_status(res, paste0(location, 'makes an unsuccessfully request'))
+    }
+
     res_content <-
       httr::content(res)
 
-    # Transform response to tibble or return directly -------------------------
+    # Transform response to table or return directly -------------------------
 
     if (isTRUE(to_table)) {
-      extractLocation(res_content) %>%
-        return()
+      return(extractLocation(res_content))
     } else {
       return(res_content)
     }
@@ -235,7 +251,7 @@ getLocation.individual <-
 #' Response from getLocation.
 #'
 #' @return
-#' Returns a tibble which extracts detailed location information from results of getLocation. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+#' Returns a data.table which extracts detailed location information from results of getLocation. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
 #' @export
 #' @examples
 #' \dontrun{
@@ -248,7 +264,7 @@ getLocation.individual <-
 #
 #' # Get reverse-geocode as a XML
 #' getLocation(104.043284, 30.666864, output = 'XML') %>%
-#'    # extract reverse-geocode regions as a tibble
+#'    # extract reverse-geocode regions as a table
 #'    extractLocation()
 #' }
 #'
@@ -256,40 +272,10 @@ getLocation.individual <-
 
 extractLocation <- function(res) {
   # Detect what kind of response will go to parse ------------------------------
-  xml_detect <-
-    any(stringr::str_detect(class(res), 'xml_document'))
-  # Convert xml2 to list
-  if (isTRUE(xml_detect)) {
-    # get the number of retruned address
-    res <-
-      res %>% xml2::as_list() %>% '$'('response')
-  }
-
-  # check the status of request
-  request_stat <-
-    res$status
-
-  # If request_stat is failure
-  # Return the failure information
-  if (request_stat == '0') {
-    stop(res$info)
-  }
-
-  # get addressComponent from regeocode
-  regeocode <-
-    res$regeocode
-
-  # detect thee number of response
-  # there is no count parameter in this query
-  # due to this, use the number of formatted_address
-  # as the count of queries.
-  obj_count <-
-    regeocode$formatted_address %>%
-    length()
-
-  if (obj_count == 0) {
-    tibble::tibble(
-      country = NA,
+  # If there is a bad request, return a table directly.
+  if (length(res) == 0) {
+    data.table::data.table(
+      country = 'Bad Request',
       province = NA,
       city = NA,
       district = NA,
@@ -298,28 +284,72 @@ extractLocation <- function(res) {
       towncode = NA
     )
   } else {
-    addressComponent <-
-      regeocode$addressComponent
-    # assemble information tible
-    var_name = c('country',
-                 'province',
-                 'city',
-                 'district',
-                 'township',
-                 'citycode',
-                 'towncode')
-    # extract value of above parameters
-    ls_var <-
-      lapply(var_name,
-             function(x) {
-               x = ifelse(sjmisc::is_empty(addressComponent[[x]]),
-                          NA,
-                          addressComponent[[x]])
-             }) %>%
-      as.data.frame()
-    tibble::tibble(formatted_address = regeocode$formatted_address[[1]],
-                   ls_var) %>%
-      # set name of tibble
-      stats::setNames(c('formatted_address', var_name))
+    xml_detect <-
+      any(stringr::str_detect(class(res), 'xml_document'))
+    # Convert xml2 to list
+    if (isTRUE(xml_detect)) {
+      # get the number of retruned address
+      res <-
+        xml2::as_list(res)
+      res <-
+        res$response
+    }
+
+    # check the status of request
+    request_stat <-
+      res$status
+
+    # If request_stat is failure
+    # Return the failure information
+    if (request_stat == '0') {
+      stop(res$info)
+    }
+
+    # get addressComponent from regeocode
+    regeocode <-
+      res$regeocode
+
+    # detect thee number of response
+    # there is no count parameter in this query
+    # due to this, use the number of formatted_address
+    # as the count of queries.
+    obj_count <-
+      length(regeocode$formatted_address)
+
+    if (obj_count == 0) {
+      data.table::data.table(
+        country = NA,
+        province = NA,
+        city = NA,
+        district = NA,
+        township = NA,
+        citycode  = NA,
+        towncode = NA
+      )
+    } else {
+      addressComponent <-
+        regeocode$addressComponent
+      # assemble information tible
+      var_name = c('country',
+                   'province',
+                   'city',
+                   'district',
+                   'township',
+                   'citycode',
+                   'towncode')
+      # extract value of above parameters
+      ls_var <-
+        lapply(var_name,
+               function(x) {
+                 x = ifelse(sjmisc::is_empty(addressComponent[[x]]),
+                            NA,
+                            addressComponent[[x]])
+               }) %>%
+        as.data.frame()
+      data.table::data.table(formatted_address = regeocode$formatted_address[[1]],
+                             ls_var) %>%
+        # set name of table
+        stats::setNames(c('formatted_address', var_name))
+    }
   }
 }

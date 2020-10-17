@@ -20,9 +20,12 @@
 #'  Output Data Structure. \cr
 #' Support JSON and XML. The default value is JSON.
 #' @param to_table Optional.\cr
-#' Transform response content to tibble.
+#' Transform response content to data.table.
+#' @param keep_bad_request Optional.\cr
+#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
+#'
 #' @return
-#' Returns a JSON, XML or Tibble of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/convert} for more information.
+#' Returns a JSON, XML or data.table of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/convert} for more information.
 #' @export
 #' @examples
 #' \dontrun{
@@ -32,7 +35,7 @@
 #' # the token should be set by `option(amap_key = 'key')`
 #' # or set by key argument in `convertCoord()`
 #'
-#' # get result of converted coordinate system as a tibble
+#' # get result of converted coordinate system as a data.table
 #' convertCoord('116.481499,39.990475',coordsys = 'gps')
 #' # get result of converted coordinate system as a XML
 #' convertCoord('116.481499,39.990475',coordsys = 'gps', to_table = FALSE)
@@ -46,7 +49,8 @@ convertCoord <-
     coordsys = NULL,
     sig = NULL,
     output = NULL,
-    to_table = TRUE
+    to_table = TRUE,
+    keep_bad_request = TRUE
   ){
     if (length(locations) == 1) {
       # if there is one address, use getCoord.individual directly
@@ -56,25 +60,25 @@ convertCoord <-
         coordsys = coordsys,
         sig = sig,
         output = output,
-        to_table = to_table
+        to_table = to_table,
+        keep_bad_request = keep_bad_request
       )
     } else {
       # if there is multiple addresses, use getCoord.individual by laapply
       ls_queries <-
-        purrr::map(
+        lapply(
           locations,
           convertCoord.individual,
           key = key,
           coordsys = coordsys,
           sig = sig,
           output = output,
-          to_table = to_table
+          to_table = to_table,
+          keep_bad_request = keep_bad_request
         )
-      # detect return list of raw requests or `bind_rows` parsed tibble
+      # detect return list of raw requests or `rbindlist` parsed data.table
       if (isTRUE(to_table)) {
-        ls_queries %>%
-          dplyr::bind_rows() %>%
-          return()
+        return(data.table::rbindlist(ls_queries))
       } else {
         return(ls_queries)
       }
@@ -98,16 +102,20 @@ convertCoord <-
 #'  Output Data Structure. \cr
 #' Support JSON and XML. The default value is JSON.
 #' @param to_table Optional.\cr
-#' Transform response content to tibble.\cr#'
+#' Transform response content to data.table.
+#' @param keep_bad_request Optional.\cr
+#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
+#'
 #' @return
-#' Returns a JSON, XML or Tibble of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/convert} for more information.
+#' Returns a JSON, XML or data.table of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/convert} for more information.
 convertCoord.individual <- function(
   locations,
   key = NULL,
   coordsys = NULL,
   sig = NULL,
   output = NULL,
-  to_table = TRUE
+  to_table = TRUE,
+  keep_bad_request = TRUE
 ) {
   # Arguments check ---------------------------------------------------------
   # Check if key argument is set or not
@@ -138,15 +146,20 @@ convertCoord.individual <- function(
 
   res <-
     httr::RETRY('GET', url = base_url, query = query_parm)
-  httr::stop_for_status(res)
+
+  if (!keep_bad_request) {
+    httr::stop_for_status(res)
+  } else {
+    httr::warn_for_status(res, paste0(locations, 'makes an unsuccessfully request'))
+  }
+
   res_content <-
     httr::content(res)
 
-  # Transform response to tibble or return directly -------------------------
+  # Transform response to data.table or return directly -------------------------
 
   if (isTRUE(to_table)) {
-    extractConvertCoord(res_content) %>%
-      return()
+    return(extractConvertCoord(res_content))
   } else {
     return(res_content)
   }
@@ -157,7 +170,7 @@ convertCoord.individual <- function(
 #' Response from convertCoord.
 #'
 #' @return
-#' Returns a tibble which extracts converted coordinate points from request of convertCoord. See \url{https://lbs.amap.com/api/webservice/guide/api/convert} for more information.
+#' Returns a data.table which extracts converted coordinate points from request of convertCoord. See \url{https://lbs.amap.com/api/webservice/guide/api/convert} for more information.
 #'
 #' @export
 #'
@@ -172,20 +185,28 @@ convertCoord.individual <- function(
 #'
 #' # get result of converted coordinate system as a XML
 #' convertCoord('116.481499,39.990475',coordsys = 'gps', to_table = FALSE) %>%
-#'    # extract result of converted coordinate system as a tibble
+#'    # extract result of converted coordinate system as a data.table
 #'    extractConvertCoord()
 #' }
 #'
 #' @seealso \code{\link{convertCoord}}
 extractConvertCoord <- function(res) {
   # Detect what kind of response will go to parse ------------------------------
-  xml_detect <-
+  # If there is a bad request, return a data.table directly.
+  if (length(res) == 0) {
+    data.table::data.table(
+      lng = 'Bad Request',
+      lat = 'Bad Request'
+    )
+  } else {  xml_detect <-
     any(stringr::str_detect(class(res), 'xml_document'))
   # Convert xml2 to list
   if (isTRUE(xml_detect)) {
     # get the number of retruned address
     res <-
-      res %>% xml2::as_list() %>% '$'('response')
+      xml2::as_list(res)
+    res <-
+      res$response
   }
 
   # check the status of request
@@ -200,11 +221,10 @@ extractConvertCoord <- function(res) {
 
   # parse lng and lat from location
   location_in_coord =
-    res$locations %>%
     # Internal Function from Helpers, no export
-    str_loc_to_num_coord()
-  tibble::tibble(
+    str_loc_to_num_coord(res$locations)
+  data.table::data.table(
     lng = location_in_coord[[1]],
     lat = location_in_coord[[2]]
-  )
+  )}
 }

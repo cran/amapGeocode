@@ -2,7 +2,7 @@
 % Please edit documentation in R/getAdmin.R
 \name{getAdmin.individual}
 \alias{getAdmin.individual}
-\title{Get an individual tibble of Subordinate Administrative Regions from location}
+\title{Get an individual data.table of Subordinate Administrative Regions from location}
 \usage{
 getAdmin.individual(
   keywords,
@@ -14,7 +14,8 @@ getAdmin.individual(
   filter = NULL,
   callback = NULL,
   output = NULL,
-  to_table = TRUE
+  to_table = TRUE,
+  keep_bad_request = TRUE
 )
 }
 \arguments{
@@ -62,11 +63,14 @@ If you don't understand, it means you don't need it, just like me.}
 Support JSON and XML. The default value is JSON.}
 
 \item{to_table}{Optional.\cr
-Transform response content to tibble.\cr}
+Transform response content to data.table.}
+
+\item{keep_bad_request}{Optional.\cr
+Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request}
 }
 \value{
 Returns a JSON or XML of results containing detailed subordinate administrative region information. See \url{https://lbs.amap.com/api/webservice/guide/api/district} for more information.
 }
 \description{
-Get an individual tibble of Subordinate Administrative Regions from location
+Get an individual data.table of Subordinate Administrative Regions from location
 }

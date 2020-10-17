@@ -21,9 +21,11 @@
 #' The value of callback is the customized function. Only available with JSON output.
 #' If you don't understand, it means you don't need it, just like me.
 #' @param to_table Optional.\cr
-#' Transform response content to tibble.\cr#'
+#' Transform response content to data.table.
+#' @param keep_bad_request Optional.\cr
+#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
 #' @return
-#' Returns a JSON, XML or Tibble of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+#' Returns a JSON, XML or data.table of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
 #' @export
 #'
 #' @examples
@@ -34,7 +36,7 @@
 #' # the token should be set by `option(amap_key = 'key')`
 #' # or set by key argument in `getCoord()`
 #'
-#' # Get geocode as a tibble
+#' # Get geocode as a data.table
 #' getCoord('IFS Chengdu')
 #' # Get geocode as a XML
 #' getCoord('IFS Chengdu', output = 'XML')
@@ -51,7 +53,8 @@ getCoord <-
            sig = NULL,
            output = NULL,
            callback = NULL,
-           to_table = TRUE) {
+           to_table = TRUE,
+           keep_bad_request = TRUE) {
     if (length(address) == 1) {
       # if there is one address, use getCoord.individual directly
       getCoord.individual(
@@ -61,26 +64,26 @@ getCoord <-
         sig = sig,
         output = output,
         callback = callback,
-        to_table = to_table
+        to_table = to_table,
+        keep_bad_request = keep_bad_request
       )
     } else {
       # if there is multiple addresses, use getCoord.individual by laapply
       ls_queries <-
-        purrr::map(
-        address,
-        getCoord.individual,
-        key = key,
-        city = city,
-        sig = sig,
-        output = output,
-        callback = callback,
-        to_table = to_table
-      )
-      # detect return list of raw requests or `bind_rows` parsed tibble
+        lapply(
+          address,
+          getCoord.individual,
+          key = key,
+          city = city,
+          sig = sig,
+          output = output,
+          callback = callback,
+          to_table = to_table,
+          keep_bad_request = keep_bad_request
+        )
+      # detect return list of raw requests or `rbindlist` parsed data.table
       if (isTRUE(to_table)) {
-        ls_queries %>%
-          dplyr::bind_rows() %>%
-          return()
+        return(data.table::rbindlist(ls_queries))
       } else {
         return(ls_queries)
       }
@@ -110,9 +113,11 @@ getCoord <-
 #' The value of callback is the customized function. Only available with JSON output.
 #' If you don't understand, it means you don't need it, just like me.
 #' @param to_table Optional.\cr
-#' Transform response content to tibble.\cr#'
+#' Transform response content to data.table.\cr
+#' @param keep_bad_request Optional.\cr
+#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
 #' @return
-#' Returns a JSON, XML or Tibble of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+#' Returns a JSON, XML or data.table of results containing detailed geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
 getCoord.individual <-
   function(address,
            key = NULL,
@@ -120,7 +125,8 @@ getCoord.individual <-
            sig = NULL,
            output = NULL,
            callback = NULL,
-           to_table = TRUE) {
+           to_table = TRUE,
+           keep_bad_request = TRUE) {
     # Arguments check ---------------------------------------------------------
     # Check if key argument is set or not
     # If there is no key, try to get amap_key from option and set as key
@@ -152,17 +158,21 @@ getCoord.individual <-
     )
 
     # GET a response with full url --------------------------------------------
-    res <-
-      httr::RETRY('GET', url = base_url, query = query_parm)
-    httr::stop_for_status(res)
+    res <- httr::RETRY("GET", url = base_url, query = query_parm)
+
+    if (!keep_bad_request) {
+      httr::stop_for_status(res)
+    } else {
+      httr::warn_for_status(res, paste0(address, 'makes an unsuccessfully request'))
+    }
+
     res_content <-
       httr::content(res)
 
-    # Transform response to tibble or return directly -------------------------
+    # Transform response to data.table or return directly -------------------------
 
     if (isTRUE(to_table)) {
-      extractCoord(res_content) %>%
-        return()
+      return(extractCoord(res_content))
     } else {
       return(res_content)
     }
@@ -174,7 +184,7 @@ getCoord.individual <-
 #' Response from getCoord.
 #'
 #' @return
-#' Returns a tibble which extracts detailed coordinate information from results of getCoord. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+#' Returns a data.table which extracts detailed coordinate information from results of getCoord. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
 #' @export
 #'
 #' @examples
@@ -188,37 +198,19 @@ getCoord.individual <-
 #'
 #' # Get geocode as a XML
 #' getCoord('IFS Chengdu', output = 'XML') %>%
-#'    # extract geocode regions as a tibble
+#'    # extract geocode regions as a data.table
 #'    extractCoord()
 #' }
 #'
 #' @seealso \code{\link{getCoord}}
 
 extractCoord <- function(res) {
-  # Detect what kind of response will go to parse ------------------------------
-  xml_detect <-
-    any(stringr::str_detect(class(res), 'xml_document'))
-  # Convert xml2 to list
-  if (isTRUE(xml_detect)) {
-    # get the number of retruned address
-    res <-
-      res %>% xml2::as_list() %>% '$'('response')
-  }
-
-    # detect whether request succeed or not
-  if (res$status != 1) {
-    stop(res$info)
-  }
-
-  # detect thee number of response
-  obj_count <-
-    res$count
-  # Return a row with all NA
-  if (obj_count == 0) {
-    tibble::tibble(
+  # If there is a bad request, return a data.table directly.
+  if (length(res) == 0) {
+    data.table::data.table(
       lng = NA,
       lat = NA,
-      formatted_address = NA,
+      formatted_address = 'Bad Request',
       country = NA,
       province = NA,
       city = NA,
@@ -229,40 +221,77 @@ extractCoord <- function(res) {
       citycode = NA,
       adcode = NA
     )
-  } else if (obj_count == 1) {
-    # get geocodes node for futher parse
-    geocode <-
-      res$geocodes[[1]]
-    # parse lng and lat from location
-    location_in_coord =
-      geocode$location %>%
-      # Internal Function from Helpers, no export
-      str_loc_to_num_coord()
-    # set parameter name
-    var_name <-
-      c(
-        'formatted_address',
-        'country',
-        'province',
-        'city',
-        'district',
-        'township',
-        'street',
-        'number',
-        'citycode',
-        'adcode'
-      )
-    # extract value of above parameters
-    ls_var <- lapply(var_name,
-                     function(x) {
-                       x = ifelse(sjmisc::is_empty(geocode[[x]]), NA, geocode[[x]])
-                     }) %>%
-      as.data.frame()
+  } else {
+    # Detect what kind of response will go to parse ------------------------------
+    xml_detect <-
+      any(stringr::str_detect(class(res), 'xml_document'))
+    # Convert xml2 to list
+    if (isTRUE(xml_detect)) {
+      # get the number of retruned address
+      res <-
+        xml2::as_list(res)
+      res <-
+        res$response
+    }
 
-    tibble::tibble(lng = location_in_coord[[1]],
-                   lat = location_in_coord[[2]],
-                   ls_var) %>%
-      # set name of tibble
-      stats::setNames(c('lng', 'lat', var_name))
+    # detect whether request succeed or not
+    if (res$status != 1) {
+      stop(res$info)
+    }
+
+    # detect thee number of response
+    obj_count <-
+      res$count
+    # Return a row with all NA
+    if (obj_count == 0) {
+      data.table::data.table(
+        lng = NA,
+        lat = NA,
+        formatted_address = NA,
+        country = NA,
+        province = NA,
+        city = NA,
+        district = NA,
+        township = NA,
+        street = NA,
+        number = NA,
+        citycode = NA,
+        adcode = NA
+      )
+    } else if (obj_count == 1) {
+      # get geocodes node for futher parse
+      geocode <-
+        res$geocodes[[1]]
+      # parse lng and lat from location
+      location_in_coord =
+        # Internal Function from Helpers, no export
+        str_loc_to_num_coord(geocode$location)
+      # set parameter name
+      var_name <-
+        c(
+          'formatted_address',
+          'country',
+          'province',
+          'city',
+          'district',
+          'township',
+          'street',
+          'number',
+          'citycode',
+          'adcode'
+        )
+      # extract value of above parameters
+      ls_var <- lapply(var_name,
+                       function(x) {
+                         x = ifelse(sjmisc::is_empty(geocode[[x]]), NA, geocode[[x]])
+                       }) %>%
+        as.data.frame()
+
+      data.table::data.table(lng = location_in_coord[[1]],
+                             lat = location_in_coord[[2]],
+                             ls_var) %>%
+        # set name of
+        stats::setNames(c('lng', 'lat', var_name))
+    }
   }
 }

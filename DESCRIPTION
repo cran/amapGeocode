@@ -1,7 +1,7 @@
 Type: Package
 Package: amapGeocode
 Title: An Interface to the 'AutoNavi Maps' API Geocoding Services
-Version: 0.4.0
+Version: 0.5.0
 Authors@R: 
     c(person(given = "Han",
              family = "Chen",
@@ -15,7 +15,7 @@ Description: Getting and parsing data of location geocode/reverse-geocode and ad
 License: MIT + file LICENSE
 URL: https://github.com/womeimingzi11/amapGeocode
 Imports: httr, jsonlite, magrittr, sjmisc, stats, stringr, xml2,
-        lifecycle, data.table
+        lifecycle, data.table, parallel
 Suggests: knitr, rmarkdown, testthat, spelling
 VignetteBuilder: knitr
 Encoding: UTF-8
@@ -24,9 +24,9 @@ RoxygenNote: 7.1.1
 RdMacros: lifecycle
 Language: en-US
 NeedsCompilation: no
-Packaged: 2020-10-17 18:17:01 UTC; chenh
+Packaged: 2020-11-20 14:49:05 UTC; chenh
 Author: Han Chen [aut, cre],
   Wanyanhan Jiang [ctb]
 Maintainer: Han Chen <chenhan28@gmail.com>
 Repository: CRAN
-Date/Publication: 2020-10-17 18:30:08 UTC
+Date/Publication: 2020-11-20 16:00:02 UTC

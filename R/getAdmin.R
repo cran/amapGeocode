@@ -2,49 +2,60 @@
 #'
 #' @param keywords Required.\cr
 #' Search keywords. \cr
-#' Rules: Country/Region, Province/State, City, County/District, Town, Country, Road, Number, Room, Building.
+#' Rules: Country/Region, Province/State,
+#' City, County/District, Town, Country, Road, Number, Room, Building.
 #' @param key Optional.\cr
 #' Amap Key. \cr
-#' Applied from 'AutoNavi' Map API official website\url{https://lbs.amap.com/dev/}
+#' Applied from 'AutoNavi' Map API
+#' official website\url{https://lbs.amap.com/dev/}
 #' @param subdistrict Optional.\cr
 #' Subordinate Administrative Level.\cr
-#' Display level of subordinate administrative regions. Available value: 0,1,2,3.\cr
+#' Display level of subordinate administrative regions.
+#' Available value: 0,1,2,3.\cr
 #' `0` do not return subordinate administrative regions.\cr
 #' `1` return first one subordinate administrative regions.\cr
 #' `2` return first two subordinate administrative regions.\cr
 #' `3` return first three subordinate administrative regions.
 #' @param page Optional.\cr
 #' Which page to return.\cr
-#' Each time the outmost layer will return a maximum of 20 records. If the limit is exceeded, please request the next page of records with the page argument.
+#' Each time the outmost layer will return a maximum of 20 records.
+#' If the limit is exceeded,
+#' please request the next page of records with the page argument.
 #' @param offset Optional.\cr
 #' Maximum records per page.\cr
 #' Maximum value is 20.
 #' @param extensions Optional.\cr
 #' Return results controller.\cr
-#' `base`: does not return the coordinates of the administrative district boundary.\cr
-#' `all`: returns only the boundary value of the current query district, not the boundary value of the child node.
+#' `base`: does not return the coordinates of
+#' the administrative district boundary.\cr
+#' `all`: returns only the boundary value of the current query district,
+#' not the boundary value of the child node.
 #' @param filter Optional.\cr
 #' Filter administrative regions.\cr
-#' Filtering by designated administrative divisions, which returns information only for the province/municipality.\cr
-#' It is strongly recommended to fill in this parameter in order to ensure the correct records.
+#' Filtering by designated administrative divisions,
+#' which returns information only for the province/municipality.\cr
+#' It is strongly recommended to fill in this parameter
+#' in order to ensure the correct records.
 #' @param callback Optional.\cr
 #' Callback Function. \cr
-#' The value of callback is the customized function. Only available with JSON output.
+#' The value of callback is the customized function.
+#' Only available with JSON output.
 #' If you don't understand, it means you don't need it, just like me.
 #' @param output Optional.\cr
 #'  Output Data Structure. \cr
-#' Support JSON and XML. The default value is JSON.
-#' @param to_table Optional.\cr
-#' Transform response content to data.table.
+#' Support JSON, XML and data.table. The default value is data.table.
 #' @param keep_bad_request Optional.\cr
-#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
-#' @param max_core Optional.\cr
-#' A threshold of max cores for parallel operation. There is no need to set a `max_core` generally.
-#' But for some extreme high performance case, like `AMD Threadripper` and `Intel Xeon`,
-#' super multiple-core CPU will meet the limitation of queries per second.
+#' Keep Bad Request to avoid breaking a workflow,
+#' especially meaningful in a batch request
+#'
+#' @param ... Optional.\cr
+#' For compatibility only
 #'
 #' @return
-#' Returns a JSON or XML of results containing detailed subordinate administrative region information. See \url{https://lbs.amap.com/api/webservice/guide/api/district} for more information.
+#' Returns a JSON or XML of results
+#' containing detailed subordinate administrative region information.
+#' See \url{https://lbs.amap.com/api/webservice/guide/api/district}
+#' for more information.
 #' @export
 #'
 #' @examples
@@ -56,10 +67,9 @@
 #' # or set by key argument in `getAdmin()`
 #'
 #' # Get subordinate administrative regions as a data.table
-#' getAdmin('Sichuan Province')
+#' getAdmin("Sichuan Province")
 #' # Get subordinate administrative regions as a XML
-#' getCoord('Sichuan Province', output = 'XML')
-#'
+#' getCoord("Sichuan Province", output = "XML")
 #' }
 #'
 #' @seealso \code{\link{extractAdmin}}
@@ -72,32 +82,14 @@ getAdmin <-
            extensions = NULL,
            filter = NULL,
            callback = NULL,
-           output = NULL,
-           to_table = TRUE,
+           output = "data.table",
            keep_bad_request = TRUE,
-           max_core = NULL) {
-    if (length(keywords) == 1) {
-      # if there is one address, use getCoord.individual directly
-      getAdmin.individual(
-        keywords,
-        key = key,
-        subdistrict = subdistrict,
-        page = page,
-        offset = offset,
-        extensions = extensions,
-        filter = filter,
-        callback = callback,
-        output = output,
-        to_table = to_table,
-        keep_bad_request = keep_bad_request
-      )
-    } else {
-      # Create local parallel cluster
-      cluster <- parallel_cluster_maker(max_core = max_core)
-      # if there is multiple addresses, use getAdmin.individual by parLapply
+           ...) {
+      # handle multiple or solo address,
+      # parallel operation will be applied
+      # if a strategy has been chosen by `future::plan()`
       ls_queries <-
-        parallel::parLapply(
-          cl = cluster,
+        furrr::future_map(
           keywords,
           getAdmin.individual,
           key = key,
@@ -108,60 +100,79 @@ getAdmin <-
           filter = filter,
           callback = callback,
           output = output,
-          to_table = to_table,
           keep_bad_request = keep_bad_request
         )
-      # stop cluster
-      parallel::stopCluster(cluster)
+
+      # if there is only one keyword, there is no need
+      # to return a list which only contain one element.
+      if (length(keywords) == 1) ls_queries <- ls_queries[[1]]
+
       # here, getAdmin doesn't support bind rows
       # because what the `getAdmin.individual` get general is a data.table
-      # `rbindlist` has the potential probability to confuse the dimension of data.tables
-      return(ls_queries)
-    }
+      # `rbindlist` has the potential probability to
+      # confuse the dimension of data.tables
+      ls_queries
   }
 
-#' Get an individual data.table of Subordinate Administrative Regions from location
+#' Get an individual data.table of
+#' Subordinate Administrative Regions from location
 #'
 #' @param keywords Required.\cr
 #' Search keywords. \cr
-#' Rules: Country/Region, Province/State, City, County/District, Town, Country, Road, Number, Room, Building.
+#' Rules: Country/Region, Province/State,
+#' City, County/District, Town, Country, Road, Number, Room, Building.
 #' @param key Optional.\cr
 #' Amap Key. \cr
-#' Applied from 'AutoNavi' Map API official website\url{https://lbs.amap.com/dev/}
+#' Applied from 'AutoNavi' Map API
+#' official website\url{https://lbs.amap.com/dev/}
 #' @param subdistrict Optional.\cr
 #' Subordinate Administrative Level.\cr
-#' Display level of subordinate administrative regions. Available value: 0,1,2,3.\cr
+#' Display level of subordinate administrative regions.
+#' Available value: 0,1,2,3.\cr
 #' `0` do not return subordinate administrative regions.\cr
 #' `1` return first one subordinate administrative regions.\cr
 #' `2` return first two subordinate administrative regions.\cr
 #' `3` return first three subordinate administrative regions.
 #' @param page Optional.\cr
 #' Which page to return.\cr
-#' Each time the outmost layer will return a maximum of 20 records. If the limit is exceeded, please request the next page of records with the page argument.
+#' Each time the outmost layer will return a maximum of 20 records.
+#' If the limit is exceeded,
+#' please request the next page of records with the page argument.
 #' @param offset Optional.\cr
 #' Maximum records per page.\cr
 #' Maximum value is 20.
 #' @param extensions Optional.\cr
 #' Return results controller.\cr
-#' `base`: does not return the coordinates of the administrative district boundary.\cr
-#' `all`: returns only the boundary value of the current query district, not the boundary value of the child node.
+#' `base`: does not return the coordinates of
+#' the administrative district boundary.\cr
+#' `all`: returns only the boundary value of the current query district,
+#' not the boundary value of the child node.
 #' @param filter Optional.\cr
 #' Filter administrative regions.\cr
-#' Filtering by designated administrative divisions, which returns information only for the province/municipality.\cr
-#' It is strongly recommended to fill in this parameter in order to ensure the correct records.
+#' Filtering by designated administrative divisions,
+#' which returns information only for the province/municipality.\cr
+#' It is strongly recommended to fill in this parameter
+#' in order to ensure the correct records.
 #' @param callback Optional.\cr
 #' Callback Function. \cr
-#' The value of callback is the customized function. Only available with JSON output.
+#' The value of callback is the customized function.
+#' Only available with JSON output.
 #' If you don't understand, it means you don't need it, just like me.
 #' @param output Optional.\cr
 #'  Output Data Structure. \cr
-#' Support JSON and XML. The default value is JSON.
-#' @param to_table Optional.\cr
-#' Transform response content to data.table.
+#' Support JSON, XML and data.table. The default value is data.table.
 #' @param keep_bad_request Optional.\cr
-#' Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request
+#' Keep Bad Request to avoid breaking a workflow,
+#' especially meaningful in a batch request
+#'
+#' @param ... Optional.\cr
+#' For compatibility only
+#'
 #' @return
-#' Returns a JSON or XML of results containing detailed subordinate administrative region information. See \url{https://lbs.amap.com/api/webservice/guide/api/district} for more information.
+#' Returns a JSON or XML of results
+#' containing detailed subordinate administrative region information.
+#' See \url{https://lbs.amap.com/api/webservice/guide/api/district}
+#' for more information.
 getAdmin.individual <-
   function(keywords,
            key = NULL,
@@ -171,27 +182,34 @@ getAdmin.individual <-
            extensions = NULL,
            filter = NULL,
            callback = NULL,
-           output = NULL,
-           to_table = TRUE,
-           keep_bad_request = TRUE) {
+           output = "data.table",
+           keep_bad_request = TRUE,
+           ...) {
     # Arguments check ---------------------------------------------------------
     # Check if key argument is set or not
     # If there is no key, try to get amap_key from option and set as key
     if (is.null(key)) {
-      if (is.null(getOption('amap_key'))) {
+      if (is.null(getOption("amap_key"))) {
         stop(
-          'Please set key argument or set amap_key globally by this command
-               options(amap_key = your key)',
+          "Please set key argument or set amap_key globally by this command
+               options(amap_key = your key)",
           call. = FALSE
         )
       }
-      key = getOption('amap_key')
+      key <- getOption("amap_key")
+    }
+
+    # Check wether output argument is data.table
+    # If it is, override argument, because the API did not support data.table
+    # the convert will be performed locally.
+    if (output == "data.table") {
+      output <- NULL
     }
 
     # assemble url and parameter ----------------------------------------------
-    base_url = 'https://restapi.amap.com/v3/config/district'
+    base_url <- "https://restapi.amap.com/v3/config/district"
 
-    query_parm = list(
+    query_parm <- list(
       key = key,
       keywords = keywords,
       subdistrict = subdistrict,
@@ -205,20 +223,22 @@ getAdmin.individual <-
 
     # GET a response with full url --------------------------------------------
     res <-
-      httr::RETRY('GET', url = base_url, query = query_parm)
+      httr::RETRY("GET", url = base_url, query = query_parm)
 
     if (!keep_bad_request) {
       httr::stop_for_status(res)
     } else {
-      httr::warn_for_status(res, paste0(keywords, 'makes an unsuccessfully request'))
+      httr::warn_for_status(res,
+                            paste0(keywords,
+                                   "makes an unsuccessfully request"))
     }
 
     res_content <-
       httr::content(res)
 
-    # Transform response to data.table or return directly -------------------------
+    # Transform response to data.table or return directly ---------
 
-    if (isTRUE(to_table)) {
+    if (is.null(output)) {
       return(extractAdmin(res_content))
     } else {
       return(res_content)
@@ -226,13 +246,18 @@ getAdmin.individual <-
   }
 
 #' Get Subordinate Administrative Region from getAdmin request
-#' Now, it only support extract the first layer of subordinate administrative region information.
+#' Now, it only support extract the first layer of
+#' subordinate administrative region information.
 #'
 #' @param res
 #' Response from getAdmin.
 #'
 #' @return
-#' Returns a data.table which extracts detailed subordinate administrative region information from results of getCoord. See \url{https://lbs.amap.com/api/webservice/guide/api/district} for more information.
+#' Returns a data.table which extracts
+#' detailed subordinate administrative region information
+#' from results of getCoord.
+#' See \url{https://lbs.amap.com/api/webservice/guide/api/district}
+#' for more information.
 #' @export
 #'
 #' @examples
@@ -244,10 +269,10 @@ getAdmin.individual <-
 #' # the token should be set by `option(amap_key = 'key')`
 #' # or set by key argument in `getAdmin()`
 #'
-#' #Get subordinate administrative regions as a XML
-#' getAdmin('Sichuan Province', output = 'XML') %>%
-#'    # extract subordinate administrative regions as a data.table
-#'    extractAdmin()
+#' # Get subordinate administrative regions as a XML
+#' getAdmin("Sichuan Province", output = "XML") %>%
+#'   # extract subordinate administrative regions as a data.table
+#'   extractAdmin()
 #' }
 #'
 #' @seealso \code{\link{getAdmin}}
@@ -260,14 +285,14 @@ extractAdmin <- function(res) {
     data.table::data.table(
       lng = NA,
       lat = NA,
-      name = 'Bad Request',
+      name = "Bad Request",
       level = NA,
       citycode = NA,
       adcode = NA
     )
   } else {
     xml_detect <-
-      any(stringr::str_detect(class(res), 'xml_document'))
+      any(stringr::str_detect(class(res), "xml_document"))
     # Convert xml2 to list
     if (isTRUE(xml_detect)) {
       # get the number of retruned address
@@ -301,14 +326,16 @@ extractAdmin <- function(res) {
         res$districts[[1]]
       # Select what variable do we need, except coordinate point
       var_name <-
-        c('name',
-          'level',
-          'citycode',
-          'adcode')
+        c(
+          "name",
+          "level",
+          "citycode",
+          "adcode"
+        )
 
       lapply(sub_res$districts, function(district) {
         # parse lng and lat from location (district$center)
-        location_in_coord =
+        location_in_coord <-
           # Internal Function from Helpers, no export
           str_loc_to_num_coord(district$center)
         # parse other information
@@ -319,13 +346,15 @@ extractAdmin <- function(res) {
           as.data.frame() %>%
           stats::setNames(var_name)
         # assemble information and coordinate
-        data.table::data.table(lng = location_in_coord[[1]],
-                               lat = location_in_coord[[2]],
-                               ls_var)
+        data.table::data.table(
+          lng = location_in_coord[[1]],
+          lat = location_in_coord[[2]],
+          ls_var
+        )
       }) %>%
         data.table::rbindlist()
     } else {
-      'Not support current extraction task.'
+      "Not support current extraction task."
     }
   }
 }

@@ -13,11 +13,11 @@ getLocation.individual(
   extensions = NULL,
   roadlevel = NULL,
   sig = NULL,
-  output = NULL,
+  output = "data.table",
   callback = NULL,
   homeorcorp = 0,
-  to_table = TRUE,
-  keep_bad_request = TRUE
+  keep_bad_request = TRUE,
+  ...
 )
 }
 \arguments{
@@ -29,11 +29,14 @@ Latitude in decimal}
 
 \item{key}{Optional.\cr
 Amap Key. \cr
-Applied from 'AutoNavi' Map API official website\url{https://lbs.amap.com/dev/}}
+Applied from 'AutoNavi' Map API
+official website\url{https://lbs.amap.com/dev/}}
 
 \item{poitype}{Optional.\cr
 Return nearby POI types.\cr
-When `extensions = all`, this argument makes sense. For detailed poitype type, please refer\url{https://lbs.amap.com/api/webservice/download}}
+When `extensions = all`, this argument makes sense.
+For detailed poitype type,
+please refer\url{https://lbs.amap.com/api/webservice/download}}
 
 \item{radius}{Optional.\cr
 Searching radius.\cr
@@ -41,7 +44,8 @@ radius ranges from 0 to 3000, the default value is 1000, unit: meter.}
 
 \item{extensions}{Optional.\cr
 Return results controller.\cr
-`base`: the default value, it only return base information about coordinate.\cr
+`base`: the default value,
+it only return base information about coordinate.\cr
 `all`: it will return nearby POI, road information and cross information.}
 
 \item{roadlevel}{Optional.\cr
@@ -52,15 +56,17 @@ When `extensions = all`, this argument makes sense. \cr
 
 \item{sig}{Optional.\cr
 Digital Signature.\cr
-How to use this argument? Please check here{https://lbs.amap.com/faq/account/key/72}}
+How to use this argument?
+Please check here{https://lbs.amap.com/faq/account/key/72}}
 
 \item{output}{Optional.\cr
 Output Data Structure. \cr
-Support JSON and XML. The default value is JSON.}
+Support JSON, XML and data.table. The default value is data.table.}
 
 \item{callback}{Optional.\cr
 Callback Function. \cr
-The value of callback is the customized function. Only available with JSON output.
+The value of callback is the customized function.
+Only available with JSON output.
 If you don't understand, it means you don't need it, just like me.}
 
 \item{homeorcorp}{Optional.\cr
@@ -70,14 +76,18 @@ When `extensions = all`, this argument makes sense. \cr
 `homeorcorp=1`, home related POIs are first, by default.\cr
 `homeorcorp=2`, corporation related POIs are first, by default.\cr}
 
-\item{to_table}{Optional.\cr
-Transform response content to table}
-
 \item{keep_bad_request}{Optional.\cr
-Keep Bad Request to avoid breaking a workflow, especially meaningful in a batch request}
+Keep Bad Request to avoid breaking a workflow,
+ especially meaningful in a batch request}
+
+\item{...}{Optional.\cr
+For compatibility only}
 }
 \value{
-Returns a JSON, XML or data.table of results containing detailed reverse geocode information. See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo} for more information.
+Returns a JSON, XML or data.table of results
+containing detailed reverse geocode information.
+See \url{https://lbs.amap.com/api/webservice/guide/api/georegeo}
+for more information.
 }
 \description{
 Get an individual location from coordinate
